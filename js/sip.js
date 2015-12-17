@@ -1,11 +1,27 @@
+/**
+ * browser sip object
+ * method:
+ *   init, sipCall, sipAnswer, sipHangup
+ * callback:
+ *   onSipShowMsg,
+ *   onSipError, onSipDestroyed,
+ *   onSipRegisterSuccess, onSipRegisterFail,
+ *   onSipCalling, onSipIncoming, onSipAccepted, onSipHangup
+ */
+
 sipObj = {
     _address: "http://janus.conf.meetecho.com:8088/janus",
     _info:{},
     _lib: null,
     _sip: null,
+    _status: null,
+    _sipNumber:null,
 
     init: function(proxy, user, secret) {
         if(!proxy || !user || !secret){
+            if(typeof onSipError === 'function'){
+                onSipError();
+            }
             return false;
         }
         sipObj._info.proxy = proxy;
@@ -75,34 +91,31 @@ sipObj = {
             }
         });
     },
-    sipDecline: function() {
-        // Hangup a call
-        if (!sipObj._sip) {
-            return false;
-        }
-        sipObj._showMsg("sip do decline");
-        var body = {
-            "request": "decline"
-        };
-        sipObj._sip.send({
-            "message": body
-        });
-    },
     sipHangup: function() {
         // Hangup a call
         if (!sipObj._sip) {
             return false;
         }
-        sipObj._showMsg("sip do hangup");
         var body = {
             "request": "hangup"
         };
-        sipObj._sip.send({
-            "message": body
-        });
-        sipObj._sip.hangup();
+        if(sipObj._status === 'incomingcall'){
+            //decline
+            sipObj._showMsg("sip do decline");
+            body.request = "decline";
+            sipObj._sip.send({
+                "message": body
+            });
+        }else{
+            //hangup
+            sipObj._showMsg("sip do hangup");
+            sipObj._sip.send({
+                "message": body
+            });
+            sipObj._sip.hangup();
+        }
     },
-    sipMessageHandler: function(msg, jsep) {
+    _sipMessageHandler: function(msg, jsep) {
         var _event = '';
         if ('error' in msg) {
             sipObj._showMsg('sip msg error : ' + msg.error);
@@ -111,6 +124,7 @@ sipObj = {
         if ('result' in msg && 'event' in msg.result) {
             _event = msg.result.event;
         }
+        sipObj._status = _event;
         sipObj._showMsg('sip onMsg event : ' + _event);
         switch (_event) {
             case 'registered':
@@ -132,8 +146,8 @@ sipObj = {
                 break;
             case 'incomingcall':
                 sipObj.jsep = jsep;
-                var _user = msg.result.username;
-                var _number = _user.substring(_user.indexOf('sip:')+4,_user.indexOf('@'));
+                sipObj._sipNumber = msg.result.username;
+                var _number = sipObj._getNumber(sipObj._sipNumber);
                 if(typeof onSipIncoming === 'function'){
                     onSipIncoming(_number);
                 }
@@ -141,6 +155,13 @@ sipObj = {
             case 'accepted':
                 if(jsep !== null && jsep !== undefined) {
                     sipObj._sip.handleRemoteJsep({jsep: jsep, error: sipObj.sipHangup });
+                }
+                if('username' in msg.result){
+                    sipObj._sipNumber = msg.result.username;
+                }
+                var _number = sipObj._getNumber(sipObj._sipNumber);
+                if(typeof onSipAccepted === 'function'){
+                    onSipAccepted(_number);
                 }
                 break;
             case 'hangup':
@@ -160,7 +181,7 @@ sipObj = {
             return true;
         }
         Janus.init({
-            debug: true,
+            debug: false,
             callback: function() {
                 sipObj._showMsg('Janus lib init...');
                 sipObj._lib = new Janus({
@@ -208,7 +229,7 @@ sipObj = {
             onmessage: function(msg, jsep) {
                 // We got a message/event (msg) from the plugin
                 // If jsep is not null, this involves a WebRTC negotiation
-                sipObj.sipMessageHandler(msg, jsep);
+                sipObj._sipMessageHandler(msg, jsep);
             },
             onlocalstream: function(stream) {
                 // We have a local stream (getUserMedia worked!) to display
@@ -219,11 +240,17 @@ sipObj = {
             onremotestream: function(stream) {
                 // We have a remote stream (working PeerConnection!) to display
                 sipObj._showMsg('sip on remoteStream');
-                attachMediaStream($('#remotevideo').get(0), stream);
+                if($('video#sipRemoteVideo').length===0){
+                    $('body').append('<video id="sipRemoteVideo" autoplay style="display:none"></video>');
+                }
+                attachMediaStream($('#sipRemoteVideo').get(0), stream);
             },
             oncleanup: function() {
                 // PeerConnection with the plugin closed, clean the UI
                 // The plugin handle is still valid so we can create a new one
+                if($('video#sipRemoteVideo').length!==0){
+                    $('video#sipRemoteVideo').remove();
+                }
                 sipObj._showMsg('sip on cleanup');
             },
             detached: function() {
@@ -243,6 +270,9 @@ sipObj = {
         sipObj._lib.destroy();
         sipObj._lib = null;
         sipObj._sip = null;
+    },
+    _getNumber: function(user){
+        return user.substring(user.indexOf('sip:')+4,user.indexOf('@'));
     },
     _showMsg: function(txt){
         if(typeof onSipShowMsg === 'function'){

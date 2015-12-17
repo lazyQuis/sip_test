@@ -45,5 +45,4 @@ $(document).ready(function() {
     });
     $('#btn_hangup').click(sipObj.sipHangup);
     $('#btn_answer').click(sipObj.sipAnswer);
-    $('#btn_decline').click(sipObj.sipDecline);
 });
