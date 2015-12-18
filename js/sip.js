@@ -3,10 +3,10 @@
  * method:
  *   init, sipCall, sipAnswer, sipHangup
  * callback:
- *   onSipShowMsg,
- *   onSipError, onSipDestroyed,
- *   onSipRegisterSuccess, onSipRegisterFail,
- *   onSipCalling, onSipIncoming, onSipAccepted, onSipHangup
+ *   onShowMsg,
+ *   onErr, onDestroyed,
+ *   onRegisterSuccess, onRegisterFail,
+ *   onCalling, onIncoming, onAccepted, onHangup
  */
 
 sipObj = {
@@ -19,9 +19,7 @@ sipObj = {
 
     init: function(proxy, user, secret) {
         if(!proxy || !user || !secret){
-            if(typeof onSipError === 'function'){
-                onSipError();
-            }
+            sip.onErr();
             return false;
         }
         sipObj._info.proxy = proxy;
@@ -53,7 +51,7 @@ sipObj = {
             },
             success: function(jsep) {
                 //SDP:Session Description Protocol
-                sipObj._showMsg("sip do call");
+                sipObj.onShowMsg("sip do call");
                 var body = {
                     'request': "call",
                     'uri': 'sip:'+number+'@'+sipObj._info.user
@@ -64,7 +62,7 @@ sipObj = {
                 });
             },
             error: function(error) {
-                sipObj._showMsg("WebRTC error:sipCall");
+                sipObj.onShowMsg("WebRTC error:sipCall");
             }
         });
     },
@@ -79,12 +77,12 @@ sipObj = {
                 video: false
             },
             success: function(jsep) {
-                sipObj._showMsg("sip do answer");
+                sipObj.onShowMsg("sip do answer");
                 var body = { "request": "accept" };
                 sipObj._sip.send({"message": body, "jsep": jsep});
             },
             error: function(error) {
-                sipObj._showMsg("WebRTC error:sipAnswer");
+                sipObj.onShowMsg("WebRTC error:sipAnswer");
                 // Don't keep the caller waiting any longer
                 var body = { "request": "decline", "code": 480 };
                 sipObj._sip.send({"message": body});
@@ -101,14 +99,14 @@ sipObj = {
         };
         if(sipObj._status === 'incomingcall'){
             //decline
-            sipObj._showMsg("sip do decline");
+            sipObj.onShowMsg("sip do decline");
             body.request = "decline";
             sipObj._sip.send({
                 "message": body
             });
         }else{
             //hangup
-            sipObj._showMsg("sip do hangup");
+            sipObj.onShowMsg("sip do hangup");
             sipObj._sip.send({
                 "message": body
             });
@@ -118,39 +116,31 @@ sipObj = {
     _sipMessageHandler: function(msg, jsep) {
         var _event = '';
         if ('error' in msg) {
-            sipObj._showMsg('sip msg error : ' + msg.error);
+            sipObj.onShowMsg('sip msg error : ' + msg.error);
             return false;
         }
         if ('result' in msg && 'event' in msg.result) {
             _event = msg.result.event;
         }
         sipObj._status = _event;
-        sipObj._showMsg('sip onMsg event : ' + _event);
+        sipObj.onShowMsg('sip onMsg event : ' + _event);
         switch (_event) {
             case 'registered':
                 sipObj._info.registered = 1;
-                if(typeof onSipRegisterSuccess === 'function'){
-                    onSipRegisterSuccess();
-                }
+                sipObj.onRegisterSuccess();
                 break;
             case 'registration_failed':
                 sipObj._info.registered = 0;
-                if(typeof onSipRegisterFail === 'function'){
-                    onSipRegisterFail();
-                }
+                sipObj.onRegisterFail();
                 break;
             case 'calling':
-                if(typeof onSipCalling === 'function'){
-                    onSipCalling();
-                }
+                sipObj.onCalling();
                 break;
             case 'incomingcall':
                 sipObj.jsep = jsep;
                 sipObj._sipNumber = msg.result.username;
                 var _number = sipObj._getNumber(sipObj._sipNumber);
-                if(typeof onSipIncoming === 'function'){
-                    onSipIncoming(_number);
-                }
+                sipObj.onIncoming(_number);
                 break;
             case 'accepted':
                 if(jsep !== null && jsep !== undefined) {
@@ -160,15 +150,11 @@ sipObj = {
                     sipObj._sipNumber = msg.result.username;
                 }
                 var _number = sipObj._getNumber(sipObj._sipNumber);
-                if(typeof onSipAccepted === 'function'){
-                    onSipAccepted(_number);
-                }
+                sipObj.onAccepted(_number);
                 break;
             case 'hangup':
                 sipObj._sip.hangup();
-                if(typeof onSipHangup === 'function'){
-                    onSipHangup();
-                }
+                sipObj.onHangup(sipObj._info.user);
                 break;
         }
     },
@@ -183,24 +169,24 @@ sipObj = {
         Janus.init({
             debug: false,
             callback: function() {
-                sipObj._showMsg('Janus lib init...');
+                sipObj.onShowMsg('Janus lib init...');
                 sipObj._lib = new Janus({
                     server: sipObj._address,
                     success: function() {
-                        sipObj._showMsg('Janus lib connect.');
+                        sipObj.onShowMsg('Janus lib connect.');
                         sipObj._libAttachSip();
                     },
                     error: function(cause) {
-                        sipObj._showMsg('Janus lib Error!');
-                        if(typeof onSipError === 'function'){
-                            onSipError();
-                        }
+                        sipObj.onShowMsg('Janus lib Error!');
+                        sipObj._lib = null;
+                        sipObj._sip = null;
+                        sipObj.onErr();
                     },
                     destroyed: function() {
-                        sipObj._showMsg('Janus lib Destroyed!');
-                        if(typeof onSipDestroyed === 'function'){
-                            onSipDestroyed();
-                        }
+                        sipObj.onShowMsg('Janus lib Destroyed!');
+                        sipObj._lib = null;
+                        sipObj._sip = null;
+                        sipObj.onDestroyed();
                     }
                 });
             }
@@ -214,17 +200,17 @@ sipObj = {
             plugin: "janus.plugin.sip",
             success: function(pluginHandle) {
                 // Plugin attached! 'pluginHandle' is our handle
-                sipObj._showMsg('sip attach success');
+                sipObj.onShowMsg('sip attach success');
                 sipObj._sip = pluginHandle;
                 sipObj.sipRegister();
             },
             error: function(error) {
                 // Couldn't attach to the plugin
-                sipObj._showMsg('sip attach error');
+                sipObj.onShowMsg('sip attach error');
             },
             consentDialog: function(on) {
                 // e.g., Darken the screen if on=true (getUserMedia incoming), restore it otherwise
-                sipObj._showMsg('sip on consentDialog : '+on);
+                sipObj.onShowMsg('sip on consentDialog : '+on);
             },
             onmessage: function(msg, jsep) {
                 // We got a message/event (msg) from the plugin
@@ -233,13 +219,13 @@ sipObj = {
             },
             onlocalstream: function(stream) {
                 // We have a local stream (getUserMedia worked!) to display
-                sipObj._showMsg('sip on localStream');
+                sipObj.onShowMsg('sip on localStream');
                 //attachMediaStream($('#myvideo').get(0), stream);
                 //$("#myvideo").get(0).muted = "muted";
             },
             onremotestream: function(stream) {
                 // We have a remote stream (working PeerConnection!) to display
-                sipObj._showMsg('sip on remoteStream');
+                sipObj.onShowMsg('sip on remoteStream');
                 if($('video#sipRemoteVideo').length===0){
                     $('body').append('<video id="sipRemoteVideo" autoplay style="display:none"></video>');
                 }
@@ -251,17 +237,61 @@ sipObj = {
                 if($('video#sipRemoteVideo').length!==0){
                     $('video#sipRemoteVideo').remove();
                 }
-                sipObj._showMsg('sip on cleanup');
+                sipObj.onShowMsg('sip on cleanup');
             },
             detached: function() {
                 // Connection with the plugin closed, get rid of its features
                 // The plugin handle is not valid anymore
-                sipObj._showMsg('sip detached');
-                if(typeof onSipDestroyed === 'function'){
-                    onSipDestroyed();
-                }
+                sipObj.onShowMsg('sip detached');
+                sipObj._sip = null;
+                sipObj.onDestroyed();
             }
         });
+    },
+    onShowMsg: function(txt){
+        if(typeof onSipShowMsg === 'function'){
+            onSipShowMsg(txt);
+        }
+    },
+    onErr: function(){
+        if(typeof onSipError === 'function'){
+            onSipError();
+        }
+    },
+    onDestroyed: function(){
+        if(typeof onSipDestroyed === 'function'){
+            onSipDestroyed();
+        }
+    },
+    onRegisterSuccess: function(){
+        if(typeof onSipRegisterSuccess === 'function'){
+            onSipRegisterSuccess();
+        }
+    },
+    onRegisterFail: function(){
+        if(typeof onSipRegisterFail === 'function'){
+            onSipRegisterFail();
+        }
+    },
+    onCalling: function(){
+        if(typeof onSipCalling === 'function'){
+            onSipCalling();
+        }
+    },
+    onIncoming: function(number){
+        if(typeof onSipIncoming === 'function'){
+            onSipIncoming(number);
+        }
+    },
+    onAccepted: function(number){
+        if(typeof onSetDialNumber === 'function'){
+            onSetDialNumber(number);
+        }
+    },
+    onHangup: function(user){
+        if(typeof onSipHangup === 'function'){
+            onSipHangup();
+        }
     },
     _libEnd: function() {
         if (!sipObj._lib) {
@@ -272,11 +302,9 @@ sipObj = {
         sipObj._sip = null;
     },
     _getNumber: function(user){
+        if(!user){
+            return 'unknown';
+        }
         return user.substring(user.indexOf('sip:')+4,user.indexOf('@'));
     },
-    _showMsg: function(txt){
-        if(typeof onSipShowMsg === 'function'){
-            onSipShowMsg(txt);
-        }
-    }
 };
