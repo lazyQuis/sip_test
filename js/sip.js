@@ -1,7 +1,7 @@
 /**
  * browser sip object
  * method:
- *   init, sipCall, sipAnswer, sipHangup
+ *   init, sipDial, sipCall, sipAnswer, sipHangup
  * callback:
  *   onShowMsg,
  *   onErr, onDestroyed,
@@ -63,6 +63,16 @@ sipObj = {
             },
             error: function(error) {
                 sipObj.onShowMsg("WebRTC error:sipCall");
+            }
+        });
+    },
+    sipDial: function(number) {
+        if (!sipObj._sip || !number) {
+            return false;
+        }
+        sipObj._sip.dtmf({
+            dtmf: {
+                tones: number
             }
         });
     },
